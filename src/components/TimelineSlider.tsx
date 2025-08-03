@@ -1,71 +1,208 @@
-import React, { useMemo, useState } from 'react';
-import { Range } from 'react-range';
-import { useAppStore } from '../store/useAppStore';
+import React, { useEffect, useState } from 'react'
+import { addHours, format, startOfHour } from 'date-fns'
 
-const TOTAL_HOURS = 30 * 24; // 30 days
-const STEP = 1;
+type Props = {
+  range: [number, number]
+  setRange: (range: [number, number]) => void
+}
 
-const TimelineSlider: React.FC = () => {
-  const { setTimeRange } = useAppStore();
+const TimelineSlider: React.FC<Props> = ({ range, setRange }) => {
+  const baseTime = startOfHour(new Date())
+  const totalHours = 720
 
-  const now = useMemo(() => new Date(), []);
+  const [realHourOffset, setRealHourOffset] = useState(0)
+  const [activeThumb, setActiveThumb] = useState<'start' | 'end' | null>(null)
 
-  const [range, setRange] = useState<number[]>([0, TOTAL_HOURS]);
+  useEffect(() => {
+    const updateOffset = () => {
+      const now = new Date()
+      const diff = Math.floor((now.getTime() - baseTime.getTime()) / 3600000)
+      setRealHourOffset(diff)
+    }
 
-  // Convert hour offsets into actual timestamps
-  const start = new Date(now.getTime() + (range[0] - TOTAL_HOURS / 2) * 3600 * 1000);
-  const end = new Date(now.getTime() + (range[1] - TOTAL_HOURS / 2) * 3600 * 1000);
+    updateOffset()
+    const interval = setInterval(updateOffset, 60000)
+    return () => clearInterval(interval)
+  }, [baseTime])
 
-  const handleChange = (values: number[]) => {
-    setRange(values);
-    const [startHour, endHour] = values;
-    const newStart = new Date(now.getTime() + (startHour - TOTAL_HOURS / 2) * 3600 * 1000);
-    const newEnd = new Date(now.getTime() + (endHour - TOTAL_HOURS / 2) * 3600 * 1000);
-    setTimeRange({ start: newStart, end: newEnd });
-  };
+  const getHourOffsetDate = (offset: number) => addHours(baseTime, offset)
+
+  const handleStartChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = Number(e.target.value)
+    if (val <= range[1]) setRange([val, range[1]])
+  }
+
+  const handleEndChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = Number(e.target.value)
+    if (val >= range[0]) setRange([range[0], val])
+  }
+
+  const leftPercent = ((range[0] + 360) / (totalHours - 1)) * 100
+  const widthPercent = ((range[1] - range[0]) / (totalHours - 1)) * 100
 
   return (
-    <div className="p-4 w-full max-w-4xl mx-auto">
-      <div className="flex justify-between mb-2 text-sm font-mono">
-        <span>Start: {start.toLocaleString()}</span>
-        <span>End: {end.toLocaleString()}</span>
+    <div style={{ padding: '16px' }}>
+      <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>
+        Selected Range:{' '}
+        <span
+          style={{ color: '#3b82f6', cursor: 'pointer' }}
+          onClick={() => setActiveThumb('start')}
+        >
+          {format(getHourOffsetDate(range[0]), 'MMM d, HH:00')}
+        </span>{' '}
+        –{' '}
+        <span
+          style={{ color: '#f97316', cursor: 'pointer' }}
+          onClick={() => setActiveThumb('end')}
+        >
+          {format(getHourOffsetDate(range[1]), 'MMM d, HH:00')}
+        </span>
+      </label>
+
+      <div style={{ position: 'relative', height: '40px' }}>
+        {/* Base track */}
+        <div
+          style={{
+            position: 'absolute',
+            height: '6px',
+            background: '#e5e7eb',
+            width: '100%',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            borderRadius: '3px',
+            zIndex: 0,
+          }}
+        />
+
+        {/* Selected range highlight */}
+        <div
+          style={{
+            position: 'absolute',
+            height: '6px',
+            background: 'rgba(76, 105, 138, 0.5)',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            borderRadius: '3px',
+            zIndex: 1,
+            left: `${leftPercent}%`,
+            width: `${widthPercent}%`,
+          }}
+        />
+
+        {/* Start thumb */}
+        <input
+          type="range"
+          min={-360}
+          max={359}
+          value={range[0]}
+          onChange={handleStartChange}
+          onMouseDown={() => setActiveThumb('start')}
+          className="slider-blue"
+        />
+
+        {/* End thumb */}
+        <input
+          type="range"
+          min={-360}
+          max={359}
+          value={range[1]}
+          onChange={handleEndChange}
+          onMouseDown={() => setActiveThumb('end')}
+          className="slider-orange"
+        />
       </div>
 
-      <Range
-        step={STEP}
-        min={0}
-        max={TOTAL_HOURS}
-        values={range}
-        onChange={handleChange}
-        renderTrack={({ props, children }) => (
-          <div
-            {...props}
-            style={{
-              ...props.style,
-              height: '6px',
-              width: '100%',
-              backgroundColor: '#ccc',
-            }}
-          >
-            {children}
-          </div>
-        )}
-        renderThumb={({ props }) => (
-          <div
-            {...props}
-            style={{
-              ...props.style,
-              height: '20px',
-              width: '20px',
-              backgroundColor: '#ff7f50',
-              borderRadius: '50%',
-              boxShadow: '0 0 0 2px white',
-            }}
-          />
-        )}
-      />
-    </div>
-  );
-};
+      {/* Tick labels */}
+      <div style={{ position: 'relative', marginTop: '12px', height: '20px' }}>
+        {Array.from({ length: totalHours }, (_, i) => {
+          const offset = i - 360
+          const date = getHourOffsetDate(offset)
+          if (offset % 48 !== 0) return null
 
-export default TimelineSlider;
+          return (
+            <span
+              key={offset}
+              style={{
+                position: 'absolute',
+                left: `${(i / (totalHours - 1)) * 100}%`,
+                transform: 'translateX(-50%)',
+                fontSize: '10px',
+                fontWeight: offset === realHourOffset ? 'bold' : 'normal',
+                color: offset === realHourOffset ? '#b39a36' : '#666',
+              }}
+            >
+              {format(date, 'MMM d')}
+            </span>
+          )
+        })}
+      </div>
+
+      {/* CSS for thumbs only clickable */}
+      <style>
+        {`
+          input[type='range'] {
+            position: absolute;
+            width: 100%;
+            height: 40px;
+            background: transparent;
+            pointer-events: none; /* disable clicking on track */
+            -webkit-appearance: none;
+            z-index: 2;
+          }
+
+          input[type='range']::-webkit-slider-runnable-track {
+            background: transparent;
+            height: 6px;
+          }
+
+          input[type='range']::-moz-range-track {
+            background: transparent;
+            height: 6px;
+          }
+
+          .slider-blue::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            pointer-events: auto;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #3b82f6;
+            cursor: pointer;
+            margin-top: -4px;
+          }
+
+          .slider-orange::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            pointer-events: auto;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #f97316;
+            cursor: pointer;
+            margin-top: -4px;
+          }
+
+          .slider-blue::-moz-range-thumb {
+            pointer-events: auto;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #3b82f6;
+            cursor: pointer;
+          }
+
+          .slider-orange::-moz-range-thumb {
+            pointer-events: auto;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #f97316;
+            cursor: pointer;
+          }
+        `}
+      </style>
+    </div>
+  )
+}
+
+export default TimelineSlider
